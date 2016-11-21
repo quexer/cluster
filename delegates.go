@@ -55,32 +55,14 @@ func (p *eventDelegate) stale(t time.Time) bool {
 	return p.mt.After(t)
 }
 
-func (p *eventDelegate) run(occurrence time.Time) {
+func (p *eventDelegate) run(now time.Time) {
 	p.Lock()
 	defer p.Unlock()
-	p.mt = occurrence
+	p.mt = now
 
 	//calm down for 30s
 	go func(t time.Time) {
 		time.Sleep(time.Second * 30)
-		p.reCheck(t)
-	}(occurrence)
-}
-
-//reCheck
-//loop all online user, check affiliation, notify if necessary. break if stale
-//update orphan list, break if stale
-func (p *eventDelegate) reCheck(t time.Time) {
-	//check online user
-	for _, id := range p.cluster.hub.Online() {
-		if p.stale(t) {
-			break
-		}
-		if f, remote := p.cluster.belongTo(id); remote {
-			//todo async ??
-			clsOnline(f, p.cluster.localName, fmt.Sprint(id), true)
-		}
-	}
-
-	//todo update orphan list
+		p.cluster.onNodeChange(p.stale, t)
+	}(now)
 }

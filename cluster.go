@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+//Config used to create new cluster
 type Config struct {
 	//GossipAddr, ip:port, is used for both UDP and TCP gossip
 	GossipAddr string
@@ -29,15 +30,15 @@ type Config struct {
 	DataExchangeKeyPath string
 }
 
+//Cluster
 type Cluster struct {
 	sync.RWMutex
-	running    bool
-	localName  string
-	nodeMap    map[string]*memberlist.Node
-	l          *memberlist.Memberlist
-	c          *consistent.Consistent
-	hub        *tok.Hub
-	gOrphanMap utee.SyncMap
+	localName string
+	nodeMap   map[string]*memberlist.Node
+	l         *memberlist.Memberlist
+	c         *consistent.Consistent
+	hub       *tok.Hub
+	orphanMap utee.SyncMap
 }
 
 func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
@@ -45,6 +46,10 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 	host, port, err := utee.ParseAddr(c.GossipAddr)
 	if err != nil {
 		return nil, err
+	}
+
+	if host == "0.0.0.0" || host == "127.0.0.1" {
+		log.Printf("[warn] cluster can't work on %s, please bind to spesfic ip\n", c.GossipAddr)
 	}
 
 	config := memberlist.DefaultLANConfig()
@@ -78,9 +83,15 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		localName: config.Name,
 		l:         nodeList,
 		c:         consistent.New(),
+		hub:       hub,
 	}
-	cluster.run()
+
 	go initGin(cluster, c)
+	go func() {
+		for range time.Tick(time.Second * 10) {
+			cluster.refresh()
+		}
+	}()
 	return cluster, nil
 }
 
@@ -92,8 +103,8 @@ func (p *Cluster) Online(uid interface{}) {
 	}
 
 	//if it used to be an orphan, update orphan map and do remote kick
-	if host, ok := p.gOrphanMap.Get(uid); ok {
-		p.gOrphanMap.Remove(uid)
+	if host, ok := p.orphanMap.Get(uid); ok {
+		p.orphanMap.Remove(uid)
 		if f, err := p.http(host.(string)); err != nil {
 			go clsKick(f, fmt.Sprint(uid))
 		}
@@ -135,7 +146,7 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 		return nil
 	}
 
-	if s, ok := p.gOrphanMap.Get(to); ok {
+	if s, ok := p.orphanMap.Get(to); ok {
 		f, err := p.http(s.(string))
 		if err == nil {
 			go clsSend(f, fmt.Sprint(to), data, ttl)
@@ -145,6 +156,31 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 
 	//it's my user and not on any other node, cache it
 	return p.hub.Send(to, data, ttl)
+}
+
+//onNodeChange
+//loop all online user, check affiliation, notify if necessary. break if stale
+//update orphan list, check affiliation, remove from list if necessary.  break if stale
+func (p *Cluster) onNodeChange(fStale func(time.Time) bool, t time.Time) {
+	log.Println("[cluster] node change, check online users")
+	//check online user, if it doesn't belong to me,
+	for _, id := range p.hub.Online() {
+		if fStale(t) {
+			break
+		}
+		if f, local := p.belongTo(id); !local {
+			//todo async ??
+			clsOnline(f, p.localName, fmt.Sprint(id), true)
+		}
+	}
+
+	log.Println("[cluster] node change, update orphan list")
+	//update orphan list
+	for _, k := range p.orphanMap.Keys() {
+		if _, local := p.belongTo(k); !local {
+			p.orphanMap.Remove(k)
+		}
+	}
 }
 
 //BelongTo return target node invoke function and whether it's local user
@@ -199,21 +235,6 @@ func (p *Cluster) refresh() {
 
 	p.nodeMap = m
 	p.c.Set(l)
-}
-
-func (p *Cluster) run() {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.running {
-		return
-	}
-	p.running = true
-	go func() {
-		for range time.Tick(time.Second * 10) {
-			p.refresh()
-		}
-	}()
 }
 
 //cluster base http function

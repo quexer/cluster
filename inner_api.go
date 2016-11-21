@@ -53,7 +53,7 @@ func ginOnline(c *gin.Context) {
 
 	cluster.hub.Kick(uid)
 
-	if s, ok := cluster.gOrphanMap.Get(uid); ok {
+	if s, ok := cluster.orphanMap.Get(uid); ok {
 		if oldNode := s.(string); oldNode != node {
 			if f, err := cluster.http(oldNode); err != nil {
 				utee.Log(err, "[remote online] unkown node "+oldNode)
@@ -62,7 +62,7 @@ func ginOnline(c *gin.Context) {
 			}
 		}
 	}
-	cluster.gOrphanMap.Put(uid, node)
+	cluster.orphanMap.Put(uid, node)
 
 	c.JSON(200, gin.H{"status": "ok"})
 }
@@ -86,10 +86,10 @@ func ginOffline(c *gin.Context) {
 		log.Printf("[warn] weird,  %s not belong to me\n", id)
 	}
 
-	s, ok := cluster.gOrphanMap.Get(uid)
+	s, ok := cluster.orphanMap.Get(uid)
 	if ok {
 		if s.(string) == node {
-			cluster.gOrphanMap.Remove(uid)
+			cluster.orphanMap.Remove(uid)
 		} else {
 			//maybe a new remote connection has kicked the old one
 			log.Printf("[warn] node inconsist, assume %v on %v but on %s\n", uid, s, node)
@@ -171,7 +171,7 @@ func ginQuery(c *gin.Context) {
 	if cluster.hub.CheckOnline(uid) {
 		nodeName = cluster.localName
 	} else {
-		if s, ok := cluster.gOrphanMap.Get(uid); ok {
+		if s, ok := cluster.orphanMap.Get(uid); ok {
 			nodeName = s.(string)
 		}
 	}
