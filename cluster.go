@@ -85,6 +85,7 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		c:         consistent.New(),
 		hub:       hub,
 	}
+	cluster.refresh()
 
 	go initGin(cluster, c)
 	go func() {
@@ -190,14 +191,14 @@ func (p *Cluster) belongTo(key interface{}) (func(string, url.Values) ([]byte, e
 
 	name, err := p.c.Get(fmt.Sprint(key))
 	if err != nil {
-		log.Println("[cluster]", err)
-		return nil, false
+		log.Println("[cluster] err", err)
+		return nil, true
 	}
 
 	f, err := p.http(name)
 	if err != nil {
-		log.Println(err)
-		return nil, false
+		log.Println("[cluster] err", err)
+		return nil, true
 	}
 
 	return f, name == p.localName
