@@ -27,7 +27,9 @@ func initGin(cluster *Cluster, conf *Config) {
 	g.POST("/send", ginSend)
 	g.GET("/query", ginQuery)
 
-	http.ListenAndServeTLS(fmt.Sprintf(":%d", conf.DataExchangePort), conf.DataExchangeCertPath, conf.DataExchangeKeyPath, router)
+	err := http.ListenAndServeTLS(fmt.Sprintf(":%d", conf.DataExchangePort), conf.DataExchangeCertPath, conf.DataExchangeKeyPath, router)
+	log.Fatal("[cluster] inner api init fail", err)
+
 }
 
 //one of my user has got online on other node
