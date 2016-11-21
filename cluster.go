@@ -58,7 +58,8 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 	config.AdvertisePort = port
 
 	config.Delegate = &delegate{dataExchangePort: c.DataExchangePort}
-	config.Events = &eventDelegate{}
+	events := &eventDelegate{}
+	config.Events = events
 
 	nodeList, err := memberlist.Create(config)
 	if err != nil {
@@ -86,6 +87,7 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		hub:       hub,
 	}
 	cluster.refresh()
+	events.cluster = cluster
 
 	go initGin(cluster, c)
 	go func() {

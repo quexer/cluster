@@ -63,6 +63,10 @@ func (p *eventDelegate) run(now time.Time) {
 	//calm down for 30s
 	go func(t time.Time) {
 		time.Sleep(time.Second * 30)
+		if p.cluster == nil {
+			log.Println("[warn] cluster should not be nil in event delegate")
+			return
+		}
 		p.cluster.onNodeChange(p.stale, t)
 	}(now)
 }
