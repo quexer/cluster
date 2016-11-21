@@ -22,7 +22,7 @@ type Config struct {
 	Seeds []string
 
 	//DataExchangePort port for inter-node data exchange. TCP only.
-	DataExchangePort uint32
+	DataExchangePort uint
 	//DataExchangeCertPath cert path for inter-node data exchange. self-signed is OK
 	DataExchangeCertPath string
 	//DataExchangeKeyPath key path for inter-node data exchange.
@@ -52,8 +52,8 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 	config.BindPort = port
 	config.AdvertisePort = port
 
-	config.Delegate = &ClusterDelegate{dataExchangePort: c.DataExchangePort}
-	config.Events = &EventDelegate{}
+	config.Delegate = &delegate{dataExchangePort: c.DataExchangePort}
+	config.Events = &eventDelegate{}
 
 	nodeList, err := memberlist.Create(config)
 	if err != nil {
@@ -79,14 +79,14 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		l:         nodeList,
 		c:         consistent.New(),
 	}
-	cluster.Run()
+	cluster.run()
 	go initGin(cluster, c)
 	return cluster, nil
 }
 
 func (p *Cluster) Online(uid interface{}) {
 	//if it doesn't belong to me, remote notify
-	if f, b := p.BelongTo(uid); !b {
+	if f, b := p.belongTo(uid); !b {
 		go clsOnline(f, fmt.Sprint(uid), p.localName, true)
 		return
 	}
@@ -101,7 +101,7 @@ func (p *Cluster) Online(uid interface{}) {
 }
 
 func (p *Cluster) Offline(uid interface{}) {
-	if f, b := p.BelongTo(uid); !b {
+	if f, b := p.belongTo(uid); !b {
 		go clsOnline(f, fmt.Sprint(uid), p.localName, false)
 	}
 }
@@ -111,7 +111,7 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 		return p.hub.Send(to, data, ttl)
 	}
 
-	if f, ok := p.BelongTo(to); !ok {
+	if f, ok := p.belongTo(to); !ok {
 		go func() {
 			locateNode, err := clsQuery(f, fmt.Sprint(to))
 			if err != nil {
@@ -136,21 +136,19 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 	}
 
 	if s, ok := p.gOrphanMap.Get(to); ok {
-		if f, err := p.http(s.(string)); err == nil {
+		f, err := p.http(s.(string))
+		if err == nil {
 			go clsSend(f, fmt.Sprint(to), data, ttl)
-			return nil
-		} else {
-			return err
 		}
-	} else {
-		//it's my user and not on any other node, cache it
-		return p.hub.Send(to, data, ttl)
+		return err
 	}
 
+	//it's my user and not on any other node, cache it
+	return p.hub.Send(to, data, ttl)
 }
 
 //BelongTo return target node invoke function and whether it's local user
-func (p *Cluster) BelongTo(key interface{}) (func(string, url.Values) ([]byte, error), bool) {
+func (p *Cluster) belongTo(key interface{}) (func(string, url.Values) ([]byte, error), bool) {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -160,12 +158,13 @@ func (p *Cluster) BelongTo(key interface{}) (func(string, url.Values) ([]byte, e
 		return nil, false
 	}
 
-	if f, err := p.http(name); err != nil {
+	f, err := p.http(name)
+	if err != nil {
 		log.Println(err)
 		return nil, false
-	} else {
-		return f, name == p.localName
 	}
+
+	return f, name == p.localName
 }
 
 func (p *Cluster) http(name string) (func(string, url.Values) ([]byte, error), error) {
@@ -178,12 +177,12 @@ func (p *Cluster) http(name string) (func(string, url.Values) ([]byte, error), e
 		return nil, fmt.Errorf("[warn] unkown node %s", name)
 	}
 
-	innerHttp2Port, err := strconv.Atoi(string(node.Meta))
+	port, err := strconv.Atoi(string(node.Meta))
 	if err != nil {
 		return nil, fmt.Errorf("[err] remote meta is not port, %v, %v", node.Addr, node.Meta)
 	}
 
-	return clsHttp(node.Addr.String(), innerHttp2Port), nil
+	return clsHTTP(node.Addr.String(), port), nil
 }
 
 func (p *Cluster) refresh() {
@@ -202,7 +201,7 @@ func (p *Cluster) refresh() {
 	p.c.Set(l)
 }
 
-func (p *Cluster) Run() {
+func (p *Cluster) run() {
 	p.Lock()
 	defer p.Unlock()
 
@@ -218,14 +217,14 @@ func (p *Cluster) Run() {
 }
 
 //cluster base http function
-func clsHttp(host string, port int) func(api string, data url.Values) ([]byte, error) {
+func clsHTTP(host string, port int) func(api string, data url.Values) ([]byte, error) {
 	return func(api string, data url.Values) ([]byte, error) {
 		s := fmt.Sprintf("https://%v:%d/inner/%s", host, port, api)
 		if data == nil {
 			return utee.HttpGet(s)
-		} else {
-			return utee.HttpPost(s, data)
 		}
+
+		return utee.HttpPost(s, data)
 	}
 }
 

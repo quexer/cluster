@@ -8,54 +8,54 @@ import (
 	"time"
 )
 
-type ClusterDelegate struct {
-	dataExchangePort uint32
+type delegate struct {
+	dataExchangePort uint
 }
 
-func (p *ClusterDelegate) NodeMeta(limit int) []byte {
+func (p *delegate) NodeMeta(limit int) []byte {
 	return []byte(fmt.Sprint(p.dataExchangePort))
 }
 
-func (p *ClusterDelegate) NotifyMsg(b []byte) {
+func (p *delegate) NotifyMsg(b []byte) {
 }
 
-func (p *ClusterDelegate) GetBroadcasts(overhead, limit int) [][]byte {
+func (p *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	return nil
 }
 
-func (p *ClusterDelegate) LocalState(join bool) []byte {
+func (p *delegate) LocalState(join bool) []byte {
 	return nil
 }
 
-func (p *ClusterDelegate) MergeRemoteState(buf []byte, join bool) {
+func (p *delegate) MergeRemoteState(buf []byte, join bool) {
 }
 
-type EventDelegate struct {
+type eventDelegate struct {
 	sync.RWMutex
 	cluster *Cluster
 	mt      time.Time
 }
 
-func (p *EventDelegate) NotifyJoin(*memberlist.Node) {
+func (p *eventDelegate) NotifyJoin(*memberlist.Node) {
 	log.Println("someone join... recheck")
 	p.run(time.Now())
 }
 
-func (p *EventDelegate) NotifyLeave(*memberlist.Node) {
+func (p *eventDelegate) NotifyLeave(*memberlist.Node) {
 	log.Println("someone leave... recheck")
 	p.run(time.Now())
 }
 
-func (p *EventDelegate) NotifyUpdate(*memberlist.Node) {
+func (p *eventDelegate) NotifyUpdate(*memberlist.Node) {
 }
 
-func (p *EventDelegate) stale(t time.Time) bool {
+func (p *eventDelegate) stale(t time.Time) bool {
 	p.RLock()
 	defer p.RUnlock()
 	return p.mt.After(t)
 }
 
-func (p *EventDelegate) run(occurrence time.Time) {
+func (p *eventDelegate) run(occurrence time.Time) {
 	p.Lock()
 	defer p.Unlock()
 	p.mt = occurrence
@@ -70,13 +70,13 @@ func (p *EventDelegate) run(occurrence time.Time) {
 //reCheck
 //loop all online user, check affiliation, notify if necessary. break if stale
 //update orphan list, break if stale
-func (p *EventDelegate) reCheck(t time.Time) {
+func (p *eventDelegate) reCheck(t time.Time) {
 	//check online user
 	for _, id := range p.cluster.hub.Online() {
 		if p.stale(t) {
 			break
 		}
-		if f, remote := p.cluster.BelongTo(id); remote {
+		if f, remote := p.cluster.belongTo(id); remote {
 			//todo async ??
 			clsOnline(f, p.cluster.localName, fmt.Sprint(id), true)
 		}

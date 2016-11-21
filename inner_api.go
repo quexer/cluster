@@ -47,7 +47,7 @@ func ginOnline(c *gin.Context) {
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
-	if _, b := cluster.BelongTo(uid); !b {
+	if _, b := cluster.belongTo(uid); !b {
 		log.Printf("[warn] weird,  %s not belong to me\n", id)
 	}
 
@@ -82,7 +82,7 @@ func ginOffline(c *gin.Context) {
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
-	if _, b := cluster.BelongTo(uid); !b {
+	if _, b := cluster.belongTo(uid); !b {
 		log.Printf("[warn] weird,  %s not belong to me\n", id)
 	}
 
@@ -148,7 +148,7 @@ func ginKick(c *gin.Context) {
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
-	if _, b := cluster.BelongTo(uid); !b {
+	if _, b := cluster.belongTo(uid); !b {
 		log.Printf("[warn] weird, remote kicking my user %s ?\n", id)
 	}
 
