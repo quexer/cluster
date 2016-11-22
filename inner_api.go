@@ -45,6 +45,7 @@ func ginOnline(c *gin.Context) {
 	uid, err := strconv.Atoi(id)
 	if err != nil {
 		c.JSON(400, gin.H{"status": "bad id:" + id})
+		return
 	}
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
@@ -80,6 +81,7 @@ func ginOffline(c *gin.Context) {
 	uid, err := strconv.Atoi(id)
 	if err != nil {
 		c.JSON(400, gin.H{"status": "bad id:" + id})
+		return
 	}
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
@@ -146,6 +148,7 @@ func ginKick(c *gin.Context) {
 	uid, err := strconv.Atoi(id)
 	if err != nil {
 		c.JSON(400, gin.H{"status": "bad id:" + id})
+		return
 	}
 
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
@@ -164,6 +167,7 @@ func ginQuery(c *gin.Context) {
 	uid, err := strconv.Atoi(id)
 	if err != nil {
 		c.JSON(400, gin.H{"status": "bad id:" + id})
+		return
 	}
 
 	nodeName := ""

@@ -173,7 +173,7 @@ func (p *Cluster) onNodeChange(fStale func(time.Time) bool, t time.Time) {
 		}
 		if f, local := p.belongTo(id); !local {
 			//todo async ??
-			clsOnline(f, p.localName, fmt.Sprint(id), true)
+			clsOnline(f, fmt.Sprint(id), p.localName, true)
 		}
 	}
 
