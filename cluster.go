@@ -287,7 +287,7 @@ func clsQuery(f func(string, url.Values) ([]byte, error), id string) (string, er
 	}
 
 	m := map[string]string{}
-	err = json.Unmarshal(b, m)
+	err = json.Unmarshal(b, &m)
 	if err != nil {
 		return "", err
 	}
