@@ -260,13 +260,17 @@ func clsOnline(f func(string, url.Values) ([]byte, error), id, currentNodeName s
 		api = "offline"
 	}
 
-	_, err := f(api, url.Values{"id": {id}, "node": {currentNodeName}})
-	utee.Log(err, "clsOnline")
+	b, err := f(api, url.Values{"id": {id}, "node": {currentNodeName}})
+	if err != nil {
+		log.Println("[cluster] clsOnline err ", err, string(b))
+	}
 }
 
 func clsKick(f func(string, url.Values) ([]byte, error), id string) {
-	_, err := f("kick", url.Values{"id": {id}})
-	utee.Log(err, "clsKick")
+	b, err := f("kick", url.Values{"id": {id}})
+	if err != nil {
+		log.Println("[cluster] clsKick err ", err, string(b))
+	}
 }
 
 func clsSend(f func(string, url.Values) ([]byte, error), id string, b []byte, ttl uint32) {
@@ -275,20 +279,24 @@ func clsSend(f func(string, url.Values) ([]byte, error), id string, b []byte, tt
 	if ttl > 0 {
 		t = fmt.Sprint(ttl)
 	}
-	_, err := f("send", url.Values{"id": {id}, "data": {s}, "ttl": {t}})
-	utee.Log(err, "clsSend")
+	b, err := f("send", url.Values{"id": {id}, "data": {s}, "ttl": {t}})
+	if err != nil {
+		log.Println("[cluster] clsSend err ", err, string(b))
+	}
 }
 
 func clsQuery(f func(string, url.Values) ([]byte, error), id string) (string, error) {
 	api := "query?" + url.Values{"id": {id}}.Encode()
 	b, err := f(api, nil)
 	if err != nil {
+		log.Println("[cluster] clsQuery err ", err, string(b))
 		return "", err
 	}
 
 	m := map[string]string{}
 	err = json.Unmarshal(b, &m)
 	if err != nil {
+		log.Println("[cluster] clsQuery json err ", err, string(b))
 		return "", err
 	}
 
