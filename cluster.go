@@ -7,12 +7,19 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/quexer/utee"
 	"gopkg.in/quexer/tok.v3"
+	"io"
+	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"stathat.com/c/consistent"
 	"strconv"
 	"sync"
 	"time"
+)
+
+var (
+	lg = log.New(os.Stderr, "[cluster] ", log.LstdFlags)
 )
 
 //Config used to create new cluster
@@ -28,6 +35,9 @@ type Config struct {
 	DataExchangeCertPath string
 	//DataExchangeKeyPath key path for inter-node data exchange.
 	DataExchangeKeyPath string
+
+	//Debug if debug is true, more internal log will be output
+	Debug bool
 }
 
 //Cluster
@@ -42,6 +52,13 @@ type Cluster struct {
 }
 
 func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
+	var logOut io.Writer
+	if c.Debug {
+		logOut = os.Stderr
+	} else {
+		logOut = ioutil.Discard
+	}
+	lg = log.New(logOut, "[cluster] ", log.LstdFlags|log.Lshortfile)
 
 	host, port, err := utee.ParseAddr(c.GossipAddr)
 	if err != nil {
@@ -49,13 +66,14 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 	}
 
 	if host == "0.0.0.0" || host == "127.0.0.1" {
-		log.Printf("[warn] cluster can't work on %s, please bind to spesfic ip\n", c.GossipAddr)
+		lg.Printf("[warn] cluster can't work on %s, please bind to spesfic ip\n", c.GossipAddr)
 	}
 
 	config := memberlist.DefaultLANConfig()
 	config.BindAddr = host
 	config.BindPort = port
 	config.AdvertisePort = port
+	config.Logger = lg
 
 	config.Delegate = &delegate{dataExchangePort: c.DataExchangePort}
 	events := &eventDelegate{}
@@ -77,7 +95,7 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		if config.Name == member.Name {
 			selfFlag = "self"
 		}
-		fmt.Printf("cluster node: %s %s:%d %s\n", member.Name, member.Addr, member.Port, selfFlag)
+		lg.Printf("cluster node: %s %s:%d %s\n", member.Name, member.Addr, member.Port, selfFlag)
 	}
 
 	cluster := &Cluster{
@@ -86,6 +104,7 @@ func CreateCluster(hub *tok.Hub, c *Config) (*Cluster, error) {
 		c:         consistent.New(),
 		hub:       hub,
 	}
+
 	cluster.refresh()
 	events.cluster = cluster
 
@@ -121,27 +140,35 @@ func (p *Cluster) Offline(uid interface{}) {
 }
 
 func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
+	lg.Println("send")
 	if p.hub.CheckOnline(to) {
+		lg.Printf("%v is local online, so local send\n", to)
 		return p.hub.Send(to, data, ttl)
 	}
 
 	if f, ok := p.belongTo(to); !ok {
+		lg.Printf("%v is not local online\n", to)
 		go func() {
-			locateNode, err := clsQuery(f, fmt.Sprint(to))
+			lg.Printf("remote query")
+			remoteNode, err := clsQuery(f, fmt.Sprint(to))
 			if err != nil {
-				utee.Log(err, "remote query err")
+				lg.Println("remote query err", err)
 				return
 			}
 
-			if locateNode == "" {
+			if remoteNode == "" {
+				lg.Printf("remote offilne, so local cache")
 				//not online around the cluster, local cache
-				utee.Log(p.hub.Send(to, data, ttl), "[cluster]")
+				if err := p.hub.Send(to, data, ttl); err != nil {
+					lg.Println("local cache fail", err)
+				}
 				return
 			}
 
 			//direct send
-			if f, err := p.http(locateNode); err != nil {
-				utee.Log(err, "unkown locateNode "+locateNode)
+			lg.Println("remote send to", remoteNode)
+			if f, err := p.http(remoteNode); err != nil {
+				lg.Println("unkown remoteNode")
 			} else {
 				clsSend(f, fmt.Sprint(to), data, ttl)
 			}
@@ -150,6 +177,7 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 	}
 
 	if s, ok := p.orphanMap.Get(to); ok {
+		lg.Printf("<%v> is my user and on other node <%v>, remote send it\n", to, s)
 		f, err := p.http(s.(string))
 		if err == nil {
 			go clsSend(f, fmt.Sprint(to), data, ttl)
@@ -157,7 +185,7 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 		return err
 	}
 
-	//it's my user and not on any other node, cache it
+	lg.Printf("<%v> is my user and not on any other node, local cache it\n", to)
 	return p.hub.Send(to, data, ttl)
 }
 
@@ -165,7 +193,7 @@ func (p *Cluster) Send(to interface{}, data []byte, ttl uint32) error {
 //loop all online user, check affiliation, notify if necessary. break if stale
 //update orphan list, check affiliation, remove from list if necessary.  break if stale
 func (p *Cluster) onNodeChange(fStale func(time.Time) bool, t time.Time) {
-	log.Println("[cluster] node change, check online users")
+	lg.Println("node change, check online users")
 	//check online user, if it doesn't belong to me,
 	for _, id := range p.hub.Online() {
 		if fStale(t) {
@@ -177,7 +205,7 @@ func (p *Cluster) onNodeChange(fStale func(time.Time) bool, t time.Time) {
 		}
 	}
 
-	log.Println("[cluster] node change, update orphan list")
+	lg.Println("node change, update orphan list")
 	//update orphan list
 	for _, k := range p.orphanMap.Keys() {
 		if _, local := p.belongTo(k); !local {
@@ -193,13 +221,13 @@ func (p *Cluster) belongTo(key interface{}) (func(string, url.Values) ([]byte, e
 
 	name, err := p.c.Get(fmt.Sprint(key))
 	if err != nil {
-		log.Println("[cluster] err", err)
+		lg.Println("err", err)
 		return nil, true
 	}
 
 	f, err := p.http(name)
 	if err != nil {
-		log.Println("[cluster] err", err)
+		lg.Println("err", err)
 		return nil, true
 	}
 
@@ -244,6 +272,7 @@ func (p *Cluster) refresh() {
 func clsHTTP(host string, port int) func(api string, data url.Values) ([]byte, error) {
 	return func(api string, data url.Values) ([]byte, error) {
 		s := fmt.Sprintf("https://%v:%d/inner/%s", host, port, api)
+		lg.Println("http", s, data)
 		if data == nil {
 			return utee.HttpGet(s)
 		}
@@ -262,14 +291,14 @@ func clsOnline(f func(string, url.Values) ([]byte, error), id, currentNodeName s
 
 	b, err := f(api, url.Values{"id": {id}, "node": {currentNodeName}})
 	if err != nil {
-		log.Println("[cluster] clsOnline err ", err, string(b))
+		lg.Println("clsOnline err ", err, string(b))
 	}
 }
 
 func clsKick(f func(string, url.Values) ([]byte, error), id string) {
 	b, err := f("kick", url.Values{"id": {id}})
 	if err != nil {
-		log.Println("[cluster] clsKick err ", err, string(b))
+		lg.Println("clsKick err ", err, string(b))
 	}
 }
 
@@ -281,7 +310,7 @@ func clsSend(f func(string, url.Values) ([]byte, error), id string, b []byte, tt
 	}
 	b, err := f("send", url.Values{"id": {id}, "data": {s}, "ttl": {t}})
 	if err != nil {
-		log.Println("[cluster] clsSend err ", err, string(b))
+		lg.Println("clsSend err ", err, string(b))
 	}
 }
 
@@ -289,14 +318,14 @@ func clsQuery(f func(string, url.Values) ([]byte, error), id string) (string, er
 	api := "query?" + url.Values{"id": {id}}.Encode()
 	b, err := f(api, nil)
 	if err != nil {
-		log.Println("[cluster] clsQuery err ", err, string(b))
+		lg.Println("clsQuery err ", err, string(b))
 		return "", err
 	}
 
 	m := map[string]string{}
 	err = json.Unmarshal(b, &m)
 	if err != nil {
-		log.Println("[cluster] clsQuery json err ", err, string(b))
+		lg.Println("clsQuery json err ", err, string(b))
 		return "", err
 	}
 

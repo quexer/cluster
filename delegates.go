@@ -3,7 +3,6 @@ package cluster
 import (
 	"fmt"
 	"github.com/hashicorp/memberlist"
-	"log"
 	"sync"
 	"time"
 )
@@ -36,13 +35,13 @@ type eventDelegate struct {
 	mt      time.Time
 }
 
-func (p *eventDelegate) NotifyJoin(*memberlist.Node) {
-	log.Println("someone join... recheck")
+func (p *eventDelegate) NotifyJoin(node *memberlist.Node) {
+	lg.Printf("%v join\n", node.Name)
 	p.run(time.Now())
 }
 
-func (p *eventDelegate) NotifyLeave(*memberlist.Node) {
-	log.Println("someone leave... recheck")
+func (p *eventDelegate) NotifyLeave(node *memberlist.Node) {
+	lg.Printf("%v leave\n", node.Name)
 	p.run(time.Now())
 }
 
@@ -64,7 +63,7 @@ func (p *eventDelegate) run(now time.Time) {
 	go func(t time.Time) {
 		time.Sleep(time.Second * 30)
 		if p.cluster == nil {
-			log.Println("[warn] cluster should not be nil in event delegate")
+			lg.Println("[warn] cluster should not be nil in event delegate")
 			return
 		}
 		p.cluster.onNodeChange(p.stale, t)

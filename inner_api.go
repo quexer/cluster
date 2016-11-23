@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/quexer/utee"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,7 +13,7 @@ import (
 const ginKeyCluster = "ginKeyCluster"
 
 func initGin(cluster *Cluster, conf *Config) {
-	log.Println("[cluster]init inner http2 server on", conf.DataExchangePort)
+	lg.Println("init inner http2 server on", conf.DataExchangePort)
 	router := gin.Default()
 
 	g := router.Group("/inner")
@@ -28,7 +27,7 @@ func initGin(cluster *Cluster, conf *Config) {
 	g.GET("/query", ginQuery)
 
 	err := http.ListenAndServeTLS(fmt.Sprintf(":%d", conf.DataExchangePort), conf.DataExchangeCertPath, conf.DataExchangeKeyPath, router)
-	log.Fatal("[cluster] inner api init fail", err)
+	lg.Fatal("inner api init fail", err)
 
 }
 
@@ -51,7 +50,7 @@ func ginOnline(c *gin.Context) {
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
 	if _, b := cluster.belongTo(uid); !b {
-		log.Printf("[warn] weird,  %s not belong to me\n", id)
+		lg.Printf("[warn] weird,  %s not belong to me\n", id)
 	}
 
 	cluster.hub.Kick(uid)
@@ -87,7 +86,7 @@ func ginOffline(c *gin.Context) {
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
 	if _, b := cluster.belongTo(uid); !b {
-		log.Printf("[warn] weird,  %s not belong to me\n", id)
+		lg.Printf("[warn] weird,  %s not belong to me\n", id)
 	}
 
 	s, ok := cluster.orphanMap.Get(uid)
@@ -96,7 +95,7 @@ func ginOffline(c *gin.Context) {
 			cluster.orphanMap.Remove(uid)
 		} else {
 			//maybe a new remote connection has kicked the old one
-			log.Printf("[warn] node inconsist, assume %v on %v but on %s\n", uid, s, node)
+			lg.Printf("[warn] node inconsist, assume %v on %v but on %s\n", uid, s, node)
 		}
 	}
 	c.JSON(200, gin.H{"status": "ok"})
@@ -154,7 +153,7 @@ func ginKick(c *gin.Context) {
 	cluster := c.MustGet(ginKeyCluster).(*Cluster)
 
 	if _, b := cluster.belongTo(uid); !b {
-		log.Printf("[warn] weird, remote kicking my user %s ?\n", id)
+		lg.Printf("[warn] weird, remote kicking my user %s ?\n", id)
 	}
 
 	cluster.hub.Kick(uid)
